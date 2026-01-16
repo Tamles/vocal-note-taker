@@ -4,6 +4,7 @@
 //! between the frontend and backend. Commands should be thin wrappers
 //! that delegate to domain modules.
 
+#[allow(unused_imports)]
 use crate::error::AppError;
 
 // Placeholder for future Tauri commands

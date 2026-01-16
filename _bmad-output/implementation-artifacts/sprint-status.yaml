@@ -41,7 +41,7 @@ development_status:
   # Epic 1: Project Foundation & Core Infrastructure
   epic-1: in-progress
   1-1-initialisation-projet-tauri-structure-modulaire: done
-  1-2-systeme-centralise-gestion-erreurs: backlog
+  1-2-systeme-centralise-gestion-erreurs: done
   1-3-interface-utilisateur-minimale-version: backlog
   1-4-build-packaging-deb-ubuntu: backlog
   1-5-fermeture-propre-application: backlog
