@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Vocal Note Taker
+Comment=Transcription vocale locale
+Comment[fr]=Transcription vocale locale avec Whisper
+Exec={{exec}}
+Icon={{icon}}
+Terminal=false
+Type=Application
+Categories=Utility;AudioVideo;Audio;
+Keywords=voice;transcription;whisper;audio;speech;
+StartupWMClass=vocal-note-taker
+StartupNotify=true

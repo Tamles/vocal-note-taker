@@ -6,6 +6,9 @@ mod error;
 mod system;
 mod transcription;
 
+use tauri::menu::{Menu, MenuItem};
+use tauri::Manager;
+
 // Re-exports for external use
 pub use error::AppError;
 
@@ -30,7 +33,59 @@ fn test_error(error_type: String) -> Result<String, AppError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![test_error])
+        .invoke_handler(tauri::generate_handler![
+            test_error,
+            commands::get_version,
+            commands::request_quit
+        ])
+        .setup(|app| {
+            // Create application menu with Quit item (Ctrl+Q)
+            let quit_item = MenuItem::with_id(
+                app,
+                "quit",
+                "Quitter",
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?;
+
+            let menu = Menu::with_items(app, &[&quit_item])?;
+            app.set_menu(menu)?;
+
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            if event.id() == "quit" {
+                // Clone app handle for async task
+                let app_handle = app.clone();
+
+                // Perform graceful shutdown asynchronously
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = crate::system::shutdown::graceful_shutdown() {
+                        eprintln!("Error during shutdown cleanup: {:?}", e);
+                    }
+                    // Exit application after cleanup
+                    app_handle.exit(0);
+                });
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent default close behavior
+                api.prevent_close();
+
+                // Clone app handle for async task
+                let app = window.app_handle().clone();
+
+                // Perform graceful shutdown asynchronously
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = crate::system::shutdown::graceful_shutdown() {
+                        eprintln!("Error during shutdown cleanup: {:?}", e);
+                    }
+                    // Exit application after cleanup
+                    app.exit(0);
+                });
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
