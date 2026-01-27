@@ -51,7 +51,7 @@ development_status:
   epic-2: in-progress
   2-1-capture-audio-microphone-systeme: done
   2-2-bouton-enregistrement-indicateur-rec: done
-  2-3-timer-enregistrement-temps-reel: backlog
+  2-3-timer-enregistrement-temps-reel: done
   2-4-visualisation-waveform-temps-reel: backlog
   2-5-raccourci-clavier-global-enregistrement: backlog
   epic-2-retrospective: optional

@@ -14,10 +14,11 @@
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import { recordingState, isRecording, isTranscribing } from '../stores/recordingState';
+  import { recordingState, isRecording, isTranscribing, recordingDuration } from '../stores/recordingState';
   import { errorStore } from '../stores/errorStore';
   import ErrorNotification from '../components/ErrorNotification.svelte';
   import RecordButton from '../components/RecordButton.svelte';
+  import Timer from '../components/Timer.svelte';
   import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
@@ -91,6 +92,11 @@
       <!-- Bouton d'enregistrement avec indicateur REC -->
       <RecordButton />
 
+      <!-- Timer d'enregistrement -->
+      {#if $isRecording || $recordingDuration > 0}
+        <Timer />
+      {/if}
+
       <!-- Status text sous le bouton -->
       {#if $isRecording}
         <p class="status-text">Parlez maintenant...</p>
@@ -117,6 +123,8 @@
     --color-text-muted: #888;
     --color-border: #333;
     --color-accent: #0f3460;
+    --color-recording: #ef4444;
+    --timer-font-size: 2rem;
     --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
