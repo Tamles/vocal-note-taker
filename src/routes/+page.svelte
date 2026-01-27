@@ -17,25 +17,12 @@
   import { recordingState, isRecording, isTranscribing } from '../stores/recordingState';
   import { errorStore } from '../stores/errorStore';
   import ErrorNotification from '../components/ErrorNotification.svelte';
-  import type { AppError } from '../types';
+  import RecordButton from '../components/RecordButton.svelte';
+  import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
   let unlisteners: UnlistenFn[] = [];
   let isClosing = false;
-
-  /**
-   * Validates and extracts AppError from Tauri error response.
-   * Backend serializes errors as {type: "VariantName", message: "..."}.
-   */
-  function toAppError(err: unknown): AppError {
-    if (typeof err === 'object' && err !== null && 'type' in err && 'message' in err) {
-      return err as AppError;
-    }
-    return {
-      type: 'IoError',
-      message: typeof err === 'string' ? err : 'Erreur inconnue'
-    };
-  }
 
   /**
    * Handles Ctrl+Q keyboard shortcut for graceful quit.
@@ -98,15 +85,20 @@
   </header>
 
   <section class="content">
-    <!-- Future components: RecordButton, WaveformDisplay, Timer, TranscriptionDisplay -->
     {#if isClosing}
       <p class="status-text closing">Fermeture en cours...</p>
-    {:else if $isRecording}
-      <p class="status-text">Enregistrement en cours...</p>
-    {:else if $isTranscribing}
-      <p class="status-text">Transcription en cours...</p>
     {:else}
-      <p class="status-text">Prêt à enregistrer</p>
+      <!-- Bouton d'enregistrement avec indicateur REC -->
+      <RecordButton />
+
+      <!-- Status text sous le bouton -->
+      {#if $isRecording}
+        <p class="status-text">Parlez maintenant...</p>
+      {:else if $isTranscribing}
+        <p class="status-text">Transcription en cours...</p>
+      {:else}
+        <p class="status-text">Cliquez pour enregistrer</p>
+      {/if}
     {/if}
   </section>
 
@@ -165,6 +157,7 @@
     align-items: center;
     justify-content: center;
     padding: 2rem;
+    gap: 1.5rem;
   }
 
   .status-text {

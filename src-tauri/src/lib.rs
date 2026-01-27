@@ -9,6 +9,8 @@ mod transcription;
 use tauri::menu::{Menu, MenuItem};
 use tauri::Manager;
 
+use crate::commands::AudioState;
+
 // Re-exports for external use
 pub use error::AppError;
 
@@ -33,10 +35,13 @@ fn test_error(error_type: String) -> Result<String, AppError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(AudioState::default())
         .invoke_handler(tauri::generate_handler![
             test_error,
             commands::get_version,
-            commands::request_quit
+            commands::request_quit,
+            commands::start_recording,
+            commands::stop_recording
         ])
         .setup(|app| {
             // Create application menu with Quit item (Ctrl+Q)
