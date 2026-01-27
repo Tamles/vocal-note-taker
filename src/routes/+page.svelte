@@ -14,11 +14,12 @@
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-  import { recordingState, isRecording, isTranscribing, recordingDuration } from '../stores/recordingState';
+  import { recordingState, isRecording, isTranscribing, recordingDuration, audioData } from '../stores/recordingState';
   import { errorStore } from '../stores/errorStore';
   import ErrorNotification from '../components/ErrorNotification.svelte';
   import RecordButton from '../components/RecordButton.svelte';
   import Timer from '../components/Timer.svelte';
+  import WaveformDisplay from '../components/WaveformDisplay.svelte';
   import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
@@ -67,6 +68,9 @@
       await listen('transcription-complete', () => recordingState.setIdle()),
       await listen<{ type: string; message: string }>('error', (event) => {
         errorStore.setError(toAppError(event.payload));
+      }),
+      await listen<number[]>('waveform-data', (event) => {
+        audioData.append(event.payload);
       })
     );
 
@@ -95,6 +99,11 @@
       <!-- Timer d'enregistrement -->
       {#if $isRecording || $recordingDuration > 0}
         <Timer />
+      {/if}
+
+      <!-- Waveform - visible pendant l'enregistrement -->
+      {#if $isRecording}
+        <WaveformDisplay />
       {/if}
 
       <!-- Status text sous le bouton -->
