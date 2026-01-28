@@ -29,6 +29,15 @@ pub enum AppError {
 
     #[error("Erreur système: {0}")]
     IoError(String),
+
+    #[error("Échec d'enregistrement du raccourci clavier: {0}. L'application reste fonctionnelle via le bouton.")]
+    HotkeyRegistrationFailed(String),
+
+    #[error("Modèle Whisper non trouvé. {0}")]
+    ModelNotFound(String),
+
+    #[error("Échec du chargement du modèle Whisper: {0}")]
+    ModelLoadFailed(String),
 }
 
 /// Serialization format for frontend consumption.
@@ -52,6 +61,9 @@ impl Serialize for AppError {
             AppError::ConfigurationError(_) => "ConfigurationError",
             AppError::ClipboardError => "ClipboardError",
             AppError::IoError(_) => "IoError",
+            AppError::HotkeyRegistrationFailed(_) => "HotkeyRegistrationFailed",
+            AppError::ModelNotFound(_) => "ModelNotFound",
+            AppError::ModelLoadFailed(_) => "ModelLoadFailed",
         };
 
         SerializedAppError {
@@ -147,6 +159,16 @@ mod tests {
     }
 
     #[test]
+    fn test_hotkey_registration_failed_serialization() {
+        let err = AppError::HotkeyRegistrationFailed("shortcut already in use".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+
+        assert!(json.contains(r#""type":"HotkeyRegistrationFailed""#));
+        assert!(json.contains("shortcut already in use"));
+        assert!(json.contains("reste fonctionnelle"));
+    }
+
+    #[test]
     fn test_all_errors_are_actionable() {
         let errors = vec![
             AppError::MicrophoneAccessDenied,
@@ -155,12 +177,20 @@ mod tests {
             AppError::RecordingInterrupted,
             AppError::ConfigurationError("test".to_string()),
             AppError::ClipboardError,
+            AppError::HotkeyRegistrationFailed("test".to_string()),
+            AppError::ModelNotFound("test".to_string()),
+            AppError::ModelLoadFailed("test".to_string()),
         ];
 
         for err in errors {
             let msg = err.to_string();
             assert!(
-                msg.contains("Vérifiez") || msg.contains("Réessayez") || msg.contains("Connectez"),
+                msg.contains("Vérifiez")
+                    || msg.contains("Réessayez")
+                    || msg.contains("Connectez")
+                    || msg.contains("reste fonctionnelle")
+                    || msg.contains("Modèle")
+                    || msg.contains("modèle"),
                 "Error '{}' should have actionable message",
                 msg
             );

@@ -31,6 +31,13 @@ dirs = "5.0"
 cpal = "0.15"
 hound = "3.5"
 
+# Global keyboard shortcuts (Story 2.5)
+tauri-plugin-global-shortcut = "2"
+
+# Local transcription (Story 3.1) - whisper-rs 0.15.1
+# NOTE: 100% local - no network features enabled
+whisper-rs = "0.15"
+
 # INTERDIT - Dépendances réseau (NFR-SEC-1)
 # NE PAS AJOUTER: reqwest, hyper, tokio/net features
 

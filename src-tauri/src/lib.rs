@@ -10,6 +10,8 @@ use tauri::menu::{Menu, MenuItem};
 use tauri::Manager;
 
 use crate::commands::AudioState;
+use crate::system::hotkeys;
+use crate::transcription::WhisperState;
 
 // Re-exports for external use
 pub use error::AppError;
@@ -35,7 +37,9 @@ fn test_error(error_type: String) -> Result<String, AppError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AudioState::default())
+        .manage(WhisperState::default())
         .invoke_handler(tauri::generate_handler![
             test_error,
             commands::get_version,
@@ -56,12 +60,34 @@ pub fn run() {
             let menu = Menu::with_items(app, &[&quit_item])?;
             app.set_menu(menu)?;
 
+            // Register global shortcuts (Story 2.5)
+            // Non-fatal: app continues without shortcuts if registration fails
+            if let Err(e) = hotkeys::register_global_shortcuts(&app.handle()) {
+                eprintln!("Warning: Could not register global shortcuts: {:?}", e);
+                eprintln!("Recording via button still available.");
+            }
+
+            // Check Whisper model availability (Story 3.1)
+            // Non-fatal: app continues without model, transcription unavailable until installed
+            match crate::transcription::check_model_availability() {
+                Ok(path) => {
+                    println!("Whisper model found at: {}", path.display());
+                }
+                Err(e) => {
+                    eprintln!("Warning: {}", e);
+                    eprintln!("Transcription will not be available until model is installed.");
+                }
+            }
+
             Ok(())
         })
         .on_menu_event(|app, event| {
             if event.id() == "quit" {
                 // Clone app handle for async task
                 let app_handle = app.clone();
+
+                // Unregister global shortcuts before exit
+                hotkeys::unregister_all(&app_handle);
 
                 // Perform graceful shutdown asynchronously
                 tauri::async_runtime::spawn(async move {
@@ -80,6 +106,9 @@ pub fn run() {
 
                 // Clone app handle for async task
                 let app = window.app_handle().clone();
+
+                // Unregister global shortcuts before exit
+                hotkeys::unregister_all(&app);
 
                 // Perform graceful shutdown asynchronously
                 tauri::async_runtime::spawn(async move {
