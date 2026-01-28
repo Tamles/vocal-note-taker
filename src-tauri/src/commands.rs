@@ -4,6 +4,7 @@
 //! between the frontend and backend. Commands should be thin wrappers
 //! that delegate to domain modules.
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
@@ -11,6 +12,7 @@ use tokio::sync::mpsc;
 use crate::audio::{self, RecordingHandle};
 use crate::error::AppError;
 use crate::system::shutdown;
+use crate::transcription::{get_model_path, transcribe_audio, WhisperModel, WhisperState};
 
 /// State global pour le stream audio actif
 /// RecordingHandle est Send + Sync car il utilise des channels
@@ -137,4 +139,112 @@ pub async fn stop_recording(
     let _ = app.emit("recording-stopped", duration_secs);
 
     Ok(wav_path.to_string_lossy().to_string())
+}
+
+/// Payload for transcription progress events.
+#[derive(Clone, serde::Serialize)]
+struct ProgressPayload {
+    percent: i32,
+}
+
+/// Payload for transcription complete events.
+#[derive(Clone, serde::Serialize)]
+struct TranscriptionPayload {
+    text: String,
+}
+
+/// Lance la transcription de manière asynchrone.
+///
+/// Retourne immédiatement - résultat via événements:
+/// - transcription-progress: { percent: 0-100 }
+/// - transcription-complete: { text: "..." }
+/// - error: { type: "...", message: "..." }
+///
+/// # Arguments
+/// * `audio_path` - Chemin vers le fichier WAV à transcrire
+///
+/// # Errors
+/// - `TranscriptionFailed` si le fichier audio n'existe pas
+#[tauri::command]
+pub async fn start_transcription(
+    app: AppHandle,
+    whisper_state: State<'_, WhisperState>,
+    audio_path: String,
+) -> Result<(), AppError> {
+    let audio_path = PathBuf::from(&audio_path);
+
+    // Vérifier que le fichier existe
+    if !audio_path.exists() {
+        return Err(AppError::TranscriptionFailed(format!(
+            "Fichier audio introuvable: {}",
+            audio_path.display()
+        )));
+    }
+
+    // Clone les éléments nécessaires pour le spawn
+    let model_arc = whisper_state.model.clone();
+    let app_clone = app.clone();
+
+    // Spawn async task pour ne pas bloquer
+    tokio::spawn(async move {
+        // Émettre progression initiale
+        let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 0 });
+
+        // Charger le modèle si nécessaire (lazy loading)
+        let mut model_guard = model_arc.lock().await;
+        if model_guard.is_none() {
+            let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 5 });
+
+            match get_model_path() {
+                Ok(model_path) => match WhisperModel::load(&model_path) {
+                    Ok(model) => {
+                        println!("Model loaded successfully");
+                        *model_guard = Some(model);
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to load model: {:?}", e);
+                        let _ = app_clone.emit("error", e);
+                        return;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to get model path: {:?}", e);
+                    let _ = app_clone.emit("error", e);
+                    return;
+                }
+            }
+        }
+
+        let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 10 });
+
+        // Transcription (cette partie est CPU-intensive)
+        // Note: whisper-rs ne supporte pas les callbacks de progression natifs
+        // On simule avec des étapes discrètes
+        if let Some(ref model) = *model_guard {
+            let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 20 });
+
+            match transcribe_audio(model, &audio_path) {
+                Ok(text) => {
+                    let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 100 });
+                    let _ = app_clone.emit(
+                        "transcription-complete",
+                        TranscriptionPayload { text },
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Transcription failed: {:?}", e);
+                    let _ = app_clone.emit("error", e);
+                }
+            }
+
+            // NFR-SEC-1: Cleanup immédiat du fichier audio temporaire (privacy-first)
+            if let Err(e) = std::fs::remove_file(&audio_path) {
+                eprintln!("Warning: Failed to cleanup temp audio file: {:?}", e);
+            } else {
+                println!("Temp audio file cleaned up: {}", audio_path.display());
+            }
+        }
+    });
+
+    Ok(())
 }

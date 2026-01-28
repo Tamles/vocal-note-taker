@@ -45,7 +45,8 @@ pub fn run() {
             commands::get_version,
             commands::request_quit,
             commands::start_recording,
-            commands::stop_recording
+            commands::stop_recording,
+            commands::start_transcription
         ])
         .setup(|app| {
             // Create application menu with Quit item (Ctrl+Q)

@@ -16,7 +16,7 @@
   /**
    * Toggle l'état d'enregistrement via commandes IPC backend.
    * - idle → start_recording → recording
-   * - recording → stop_recording → transcribing
+   * - recording → stop_recording → transcribing → start_transcription
    */
   async function handleClick() {
     if (isLoading || $isTranscribing) return;
@@ -25,14 +25,18 @@
 
     try {
       if ($isRecording) {
-        // Stop recording - backend emits recording-stopped event
-        await invoke<string>('stop_recording');
+        // Stop recording - returns the WAV file path
+        const wavPath = await invoke<string>('stop_recording');
+
+        // Start transcription with the WAV file
+        // This returns immediately, results come via events
+        await invoke('start_transcription', { audioPath: wavPath });
       } else {
         // Start recording - backend emits recording-started event
         await invoke('start_recording');
       }
     } catch (error) {
-      console.error('Recording error:', error);
+      console.error('Recording/transcription error:', error);
       errorStore.setError(toAppError(error));
       // Reset to idle on error
       recordingState.setIdle();

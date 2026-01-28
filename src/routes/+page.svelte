@@ -16,10 +16,12 @@
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { recordingState, isRecording, isTranscribing, recordingDuration, audioData } from '../stores/recordingState';
   import { errorStore } from '../stores/errorStore';
+  import { transcriptionProgress, transcriptionText, resetTranscription } from '../stores/transcriptionState';
   import ErrorNotification from '../components/ErrorNotification.svelte';
   import RecordButton from '../components/RecordButton.svelte';
   import Timer from '../components/Timer.svelte';
   import WaveformDisplay from '../components/WaveformDisplay.svelte';
+  import ProgressBar from '../components/ProgressBar.svelte';
   import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
@@ -61,13 +63,29 @@
       appVersion = '?';
     }
 
-    // Setup IPC event listeners for future backend events
+    // Setup IPC event listeners for backend events
     unlisteners.push(
       await listen('recording-started', () => recordingState.setRecording()),
-      await listen('recording-stopped', () => recordingState.setTranscribing()),
-      await listen('transcription-complete', () => recordingState.setIdle()),
+      await listen<number>('recording-stopped', () => {
+        // Transition to transcribing state - transcription is started by RecordButton
+        recordingState.setTranscribing();
+        resetTranscription();
+      }),
+      await listen<{ percent: number }>('transcription-progress', (event) => {
+        transcriptionProgress.set(event.payload.percent);
+      }),
+      await listen<{ text: string }>('transcription-complete', (event) => {
+        transcriptionText.set(event.payload.text);
+        transcriptionProgress.set(100);
+        recordingState.setIdle();
+        // Reset recording state for next session
+        recordingDuration.reset();
+        audioData.clear();
+      }),
       await listen<{ type: string; message: string }>('error', (event) => {
         errorStore.setError(toAppError(event.payload));
+        // Reset to idle on transcription error
+        recordingState.setIdle();
       }),
       await listen<number[]>('waveform-data', (event) => {
         audioData.append(event.payload);
@@ -106,11 +124,25 @@
         <WaveformDisplay />
       {/if}
 
+      <!-- Progress bar - visible pendant la transcription -->
+      {#if $isTranscribing}
+        <ProgressBar progress={$transcriptionProgress} />
+      {/if}
+
+      <!-- Transcribed text display -->
+      {#if $transcriptionText && !$isRecording && !$isTranscribing}
+        <div class="transcription-result" aria-live="polite" role="region" aria-label="Résultat de transcription">
+          <p class="transcription-text">{$transcriptionText}</p>
+        </div>
+      {/if}
+
       <!-- Status text sous le bouton -->
       {#if $isRecording}
         <p class="status-text">Parlez maintenant...</p>
       {:else if $isTranscribing}
         <p class="status-text">Transcription en cours...</p>
+      {:else if $transcriptionText}
+        <p class="status-text">Transcription terminée</p>
       {:else}
         <p class="status-text">Cliquez pour enregistrer</p>
       {/if}
@@ -185,6 +217,22 @@
 
   .status-text.closing {
     color: #f0ad4e;
+  }
+
+  .transcription-result {
+    max-width: 400px;
+    padding: 1rem;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+
+  .transcription-text {
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.5;
+    margin: 0;
+    word-wrap: break-word;
   }
 
   footer {

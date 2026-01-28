@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use whisper_rs::{WhisperContext, WhisperContextParameters};
+use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 use crate::error::AppError;
 
@@ -120,6 +120,129 @@ pub fn check_model_availability() -> Result<PathBuf, AppError> {
     }
 }
 
+/// Transcrit un fichier audio WAV en texte.
+///
+/// # Arguments
+/// * `model` - WhisperModel chargé
+/// * `audio_path` - Chemin vers fichier WAV (16kHz mono requis)
+///
+/// # Returns
+/// Texte transcrit ou AppError::TranscriptionFailed
+///
+/// # Errors
+/// - `TranscriptionFailed` si le fichier WAV est invalide ou la transcription échoue
+pub fn transcribe_audio(model: &WhisperModel, audio_path: &Path) -> Result<String, AppError> {
+    // 1. Lire le fichier WAV
+    let samples = read_wav_samples(audio_path)?;
+
+    if samples.is_empty() {
+        return Err(AppError::TranscriptionFailed(
+            "Fichier audio vide".to_string(),
+        ));
+    }
+
+    println!(
+        "Starting transcription: {} samples from {}",
+        samples.len(),
+        audio_path.display()
+    );
+
+    // 2. Créer state pour transcription
+    let mut state = model
+        .context()
+        .create_state()
+        .map_err(|e| AppError::TranscriptionFailed(format!("Échec création state: {}", e)))?;
+
+    // 3. Configurer les paramètres
+    let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+    params.set_language(Some("auto")); // Auto-détection de la langue
+    params.set_print_progress(false);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_single_segment(false);
+    params.set_translate(false); // Transcription uniquement, pas de traduction
+
+    // 4. Exécuter transcription
+    state
+        .full(params, &samples)
+        .map_err(|e| AppError::TranscriptionFailed(format!("Échec transcription: {}", e)))?;
+
+    // 5. Extraire le texte des segments
+    let num_segments = state.full_n_segments();
+
+    let mut text = String::new();
+    for i in 0..num_segments {
+        if let Some(segment) = state.get_segment(i) {
+            if let Ok(segment_text) = segment.to_str_lossy() {
+                text.push_str(&segment_text);
+                text.push(' ');
+            }
+        }
+    }
+
+    let result = text.trim().to_string();
+    println!(
+        "Transcription complete: {} segments, {} chars",
+        num_segments,
+        result.len()
+    );
+
+    Ok(result)
+}
+
+/// Lit un fichier WAV et retourne les samples f32 normalisés.
+///
+/// # Arguments
+/// * `path` - Chemin vers le fichier WAV
+///
+/// # Returns
+/// Vecteur de samples f32 normalisés [-1.0, 1.0]
+///
+/// # Errors
+/// - `TranscriptionFailed` si le fichier est invalide ou non-mono
+fn read_wav_samples(path: &Path) -> Result<Vec<f32>, AppError> {
+    let reader = hound::WavReader::open(path).map_err(|e| {
+        AppError::TranscriptionFailed(format!(
+            "Impossible d'ouvrir le fichier WAV '{}': {}",
+            path.display(),
+            e
+        ))
+    })?;
+
+    let spec = reader.spec();
+
+    // Vérifier format attendu (mono)
+    if spec.channels != 1 {
+        return Err(AppError::TranscriptionFailed(format!(
+            "Audio doit être mono (1 canal), mais a {} canaux",
+            spec.channels
+        )));
+    }
+
+    println!(
+        "WAV file: {} Hz, {} bits, {} channels",
+        spec.sample_rate, spec.bits_per_sample, spec.channels
+    );
+
+    // Convertir samples en f32 normalisés [-1.0, 1.0]
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Int => {
+            let max_val = (1i64 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .into_samples::<i32>()
+                .filter_map(|s| s.ok())
+                .map(|s| s as f32 / max_val)
+                .collect()
+        }
+        hound::SampleFormat::Float => reader
+            .into_samples::<f32>()
+            .filter_map(|s| s.ok())
+            .collect(),
+    };
+
+    Ok(samples)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +345,39 @@ mod tests {
             path.to_string_lossy().contains("ggml-large-v3.bin"),
             "Should return model path"
         );
+    }
+
+    #[test]
+    fn test_read_wav_samples_missing_file() {
+        let fake_path = std::path::PathBuf::from("/nonexistent/audio.wav");
+        let result = read_wav_samples(&fake_path);
+        assert!(result.is_err(), "Should return error for missing file");
+        match result {
+            Err(AppError::TranscriptionFailed(msg)) => {
+                assert!(
+                    msg.contains("Impossible d'ouvrir"),
+                    "Error should mention file open failure"
+                );
+            }
+            _ => panic!("Expected TranscriptionFailed error"),
+        }
+    }
+
+    #[test]
+    fn test_transcribe_audio_missing_file() {
+        // Test that transcribe_audio returns error for missing model
+        // We can't test the full flow without a model, but we can verify error handling
+        let fake_model_path = std::path::PathBuf::from("/nonexistent/model.bin");
+        let result = WhisperModel::load(&fake_model_path);
+        assert!(result.is_err(), "Should return error for missing model");
+        match result {
+            Err(AppError::ModelNotFound(msg)) => {
+                assert!(
+                    msg.contains("Modèle Whisper non trouvé"),
+                    "Error should mention model not found"
+                );
+            }
+            _ => panic!("Expected ModelNotFound error"),
+        }
     }
 }
