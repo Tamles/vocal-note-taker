@@ -8,9 +8,40 @@
    * - Manual close button
    * - Slide-in/out animation
    * - Red/orange alert styling
+   * - Icon differentiation based on error type
    */
   import { errorStore } from '../stores/errorStore';
   import { fly } from 'svelte/transition';
+
+  /**
+   * Returns an appropriate icon based on the error type.
+   * Groups errors by category for visual distinction.
+   */
+  function getErrorIcon(type: string | undefined): string {
+    if (!type) return '⚠️';
+
+    switch (type) {
+      case 'ModelNotFound':
+      case 'ModelLoadFailed':
+        return '📦'; // Problème modèle
+      case 'InvalidAudioFormat':
+      case 'TranscriptionFailed':
+        return '🎤'; // Problème audio/transcription
+      case 'MicrophoneAccessDenied':
+      case 'MicrophoneNotFound':
+        return '🔇'; // Problème microphone
+      case 'ConfigurationError':
+        return '⚙️'; // Problème configuration
+      case 'IoError':
+        return '💾'; // Problème système fichiers
+      case 'ClipboardError':
+        return '📋'; // Problème presse-papiers
+      case 'HotkeyRegistrationFailed':
+        return '⌨️'; // Problème raccourci clavier
+      default:
+        return '⚠️'; // Erreur générique
+    }
+  }
 </script>
 
 {#if $errorStore}
@@ -19,7 +50,7 @@
     transition:fly={{ y: -20, duration: 300 }}
   >
     <div class="error-content">
-      <span class="error-icon">⚠️</span>
+      <span class="error-icon">{getErrorIcon($errorStore.type)}</span>
       <span class="error-message">{$errorStore.message}</span>
     </div>
     <button

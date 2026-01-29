@@ -84,8 +84,10 @@
       }),
       await listen<{ type: string; message: string }>('error', (event) => {
         errorStore.setError(toAppError(event.payload));
-        // Reset to idle on transcription error
+        // Reset to idle on error - AC #4: permet de relancer immédiatement
         recordingState.setIdle();
+        transcriptionProgress.reset();
+        // Keep audioData and recordingDuration for potential debugging
       }),
       await listen<number[]>('waveform-data', (event) => {
         audioData.append(event.payload);

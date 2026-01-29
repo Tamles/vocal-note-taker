@@ -36,8 +36,11 @@ pub enum AppError {
     #[error("Modèle Whisper non trouvé. {0}")]
     ModelNotFound(String),
 
-    #[error("Échec du chargement du modèle Whisper: {0}")]
+    #[error("Échec du chargement du modèle Whisper: {0}. Vérifiez l'espace mémoire disponible ou réexécutez download-models.sh.")]
     ModelLoadFailed(String),
+
+    #[error("Format audio invalide: {0}. Réenregistrez.")]
+    InvalidAudioFormat(String),
 }
 
 /// Serialization format for frontend consumption.
@@ -64,6 +67,7 @@ impl Serialize for AppError {
             AppError::HotkeyRegistrationFailed(_) => "HotkeyRegistrationFailed",
             AppError::ModelNotFound(_) => "ModelNotFound",
             AppError::ModelLoadFailed(_) => "ModelLoadFailed",
+            AppError::InvalidAudioFormat(_) => "InvalidAudioFormat",
         };
 
         SerializedAppError {
@@ -180,6 +184,7 @@ mod tests {
             AppError::HotkeyRegistrationFailed("test".to_string()),
             AppError::ModelNotFound("test".to_string()),
             AppError::ModelLoadFailed("test".to_string()),
+            AppError::InvalidAudioFormat("test".to_string()),
         ];
 
         for err in errors {
@@ -187,6 +192,7 @@ mod tests {
             assert!(
                 msg.contains("Vérifiez")
                     || msg.contains("Réessayez")
+                    || msg.contains("Réenregistrez")
                     || msg.contains("Connectez")
                     || msg.contains("reste fonctionnelle")
                     || msg.contains("Modèle")
@@ -195,5 +201,23 @@ mod tests {
                 msg
             );
         }
+    }
+
+    #[test]
+    fn test_invalid_audio_format_is_actionable() {
+        let err = AppError::InvalidAudioFormat("fichier corrompu".to_string());
+        let msg = err.to_string();
+        assert!(msg.contains("fichier corrompu"), "Message should contain details");
+        assert!(msg.contains("Réenregistrez"), "Message should suggest action");
+    }
+
+    #[test]
+    fn test_invalid_audio_format_serialization() {
+        let err = AppError::InvalidAudioFormat("bad format".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+
+        assert!(json.contains(r#""type":"InvalidAudioFormat""#));
+        assert!(json.contains("bad format"));
+        assert!(json.contains("Réenregistrez"));
     }
 }

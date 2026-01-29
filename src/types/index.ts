@@ -11,7 +11,11 @@ export type AppErrorType =
   | 'RecordingInterrupted'
   | 'ConfigurationError'
   | 'ClipboardError'
-  | 'IoError';
+  | 'IoError'
+  | 'HotkeyRegistrationFailed'
+  | 'ModelNotFound'
+  | 'ModelLoadFailed'
+  | 'InvalidAudioFormat';
 
 /**
  * Application error structure received from backend via IPC.

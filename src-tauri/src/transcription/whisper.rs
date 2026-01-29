@@ -39,7 +39,28 @@ impl WhisperModel {
             })?,
             params,
         )
-        .map_err(|e| AppError::ModelLoadFailed(e.to_string()))?;
+        .map_err(|e| {
+            // Diagnostic: analyser le type d'erreur pour des conseils contextualisés
+            let err_str = e.to_string();
+            let diagnostic = if err_str.to_lowercase().contains("memory")
+                || err_str.to_lowercase().contains("alloc")
+            {
+                format!(
+                    "Mémoire insuffisante pour charger le modèle (~3GB requis): {}",
+                    err_str
+                )
+            } else if err_str.to_lowercase().contains("invalid")
+                || err_str.to_lowercase().contains("corrupt")
+            {
+                format!(
+                    "Fichier modèle corrompu ou incomplet: {}. Retéléchargez le modèle",
+                    err_str
+                )
+            } else {
+                err_str
+            };
+            AppError::ModelLoadFailed(diagnostic)
+        })?;
 
         println!(
             "Whisper model loaded successfully from: {}",
@@ -120,6 +141,47 @@ pub fn check_model_availability() -> Result<PathBuf, AppError> {
     }
 }
 
+/// Valide le format d'un fichier WAV avant transcription.
+///
+/// # Arguments
+/// * `path` - Chemin vers le fichier WAV
+///
+/// # Errors
+/// - `InvalidAudioFormat` si header WAV invalide, samples vides, ou format incorrect
+fn validate_wav_file(path: &Path) -> Result<(), AppError> {
+    let reader = hound::WavReader::open(path).map_err(|e| {
+        AppError::InvalidAudioFormat(format!("Fichier audio invalide ou corrompu: {}", e))
+    })?;
+
+    let spec = reader.spec();
+
+    // Vérifier channels (doit être mono)
+    if spec.channels != 1 {
+        return Err(AppError::InvalidAudioFormat(format!(
+            "Audio doit être mono (1 canal), reçu: {} canaux",
+            spec.channels
+        )));
+    }
+
+    // Vérifier sample rate (16kHz attendu pour Whisper)
+    if spec.sample_rate != 16000 {
+        return Err(AppError::InvalidAudioFormat(format!(
+            "Sample rate doit être 16000 Hz, reçu: {} Hz",
+            spec.sample_rate
+        )));
+    }
+
+    // Vérifier que le fichier n'est pas vide
+    let duration = reader.duration();
+    if duration == 0 {
+        return Err(AppError::InvalidAudioFormat(
+            "Fichier audio vide - aucun échantillon détecté".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Transcrit un fichier audio WAV en texte.
 ///
 /// # Arguments
@@ -130,9 +192,13 @@ pub fn check_model_availability() -> Result<PathBuf, AppError> {
 /// Texte transcrit ou AppError::TranscriptionFailed
 ///
 /// # Errors
-/// - `TranscriptionFailed` si le fichier WAV est invalide ou la transcription échoue
+/// - `InvalidAudioFormat` si le fichier WAV est invalide (header, format, vide)
+/// - `TranscriptionFailed` si la transcription échoue
 pub fn transcribe_audio(model: &WhisperModel, audio_path: &Path) -> Result<String, AppError> {
-    // 1. Lire le fichier WAV
+    // 1. Valider le fichier audio AVANT de lire les samples
+    validate_wav_file(audio_path)?;
+
+    // 2. Lire le fichier WAV
     let samples = read_wav_samples(audio_path)?;
 
     if samples.is_empty() {
@@ -147,7 +213,7 @@ pub fn transcribe_audio(model: &WhisperModel, audio_path: &Path) -> Result<Strin
         audio_path.display()
     );
 
-    // 2. Créer state pour transcription
+    // 3. Créer state pour transcription
     let mut state = model
         .context()
         .create_state()
@@ -193,13 +259,17 @@ pub fn transcribe_audio(model: &WhisperModel, audio_path: &Path) -> Result<Strin
 /// Lit un fichier WAV et retourne les samples f32 normalisés.
 ///
 /// # Arguments
-/// * `path` - Chemin vers le fichier WAV
+/// * `path` - Chemin vers le fichier WAV (doit être validé par `validate_wav_file` avant appel)
 ///
 /// # Returns
 /// Vecteur de samples f32 normalisés [-1.0, 1.0]
 ///
 /// # Errors
-/// - `TranscriptionFailed` si le fichier est invalide ou non-mono
+/// - `TranscriptionFailed` si le fichier ne peut pas être ouvert
+///
+/// # Note
+/// Cette fonction suppose que le fichier a été validé par `validate_wav_file()`.
+/// Ne pas appeler directement sans validation préalable.
 fn read_wav_samples(path: &Path) -> Result<Vec<f32>, AppError> {
     let reader = hound::WavReader::open(path).map_err(|e| {
         AppError::TranscriptionFailed(format!(
@@ -211,13 +281,7 @@ fn read_wav_samples(path: &Path) -> Result<Vec<f32>, AppError> {
 
     let spec = reader.spec();
 
-    // Vérifier format attendu (mono)
-    if spec.channels != 1 {
-        return Err(AppError::TranscriptionFailed(format!(
-            "Audio doit être mono (1 canal), mais a {} canaux",
-            spec.channels
-        )));
-    }
+    // Note: validation channels/sample_rate déjà faite par validate_wav_file()
 
     println!(
         "WAV file: {} Hz, {} bits, {} channels",
@@ -379,5 +443,195 @@ mod tests {
             }
             _ => panic!("Expected ModelNotFound error"),
         }
+    }
+
+    #[test]
+    fn test_validate_wav_nonexistent_file() {
+        let result = validate_wav_file(Path::new("/nonexistent/file.wav"));
+        assert!(result.is_err(), "Should return error for nonexistent file");
+        match result {
+            Err(AppError::InvalidAudioFormat(msg)) => {
+                assert!(
+                    msg.contains("invalide ou corrompu"),
+                    "Error should mention invalid/corrupted file"
+                );
+            }
+            _ => panic!("Expected InvalidAudioFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_wav_empty_file() {
+        let temp_dir = std::env::temp_dir();
+        let empty_wav = temp_dir.join("test_empty_validation.wav");
+
+        // Créer fichier WAV vide avec header valide mais 0 samples
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let writer = hound::WavWriter::create(&empty_wav, spec).unwrap();
+        // Ne pas écrire de samples - fichier vide
+        writer.finalize().unwrap();
+
+        let result = validate_wav_file(&empty_wav);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&empty_wav);
+
+        assert!(result.is_err(), "Should return error for empty audio file");
+        match result {
+            Err(AppError::InvalidAudioFormat(msg)) => {
+                assert!(
+                    msg.contains("vide") || msg.contains("aucun échantillon"),
+                    "Error should mention empty file: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected InvalidAudioFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_wav_wrong_sample_rate() {
+        let temp_dir = std::env::temp_dir();
+        let wrong_rate_wav = temp_dir.join("test_wrong_rate_validation.wav");
+
+        // Créer fichier WAV avec sample rate incorrect (44100 au lieu de 16000)
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 44100, // Wrong rate
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&wrong_rate_wav, spec).unwrap();
+        // Écrire quelques samples
+        for _ in 0..1000 {
+            writer.write_sample(0i16).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let result = validate_wav_file(&wrong_rate_wav);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&wrong_rate_wav);
+
+        assert!(result.is_err(), "Should return error for wrong sample rate");
+        match result {
+            Err(AppError::InvalidAudioFormat(msg)) => {
+                assert!(
+                    msg.contains("16000") && msg.contains("44100"),
+                    "Error should mention expected and actual sample rate: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected InvalidAudioFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_wav_stereo_file() {
+        let temp_dir = std::env::temp_dir();
+        let stereo_wav = temp_dir.join("test_stereo_validation.wav");
+
+        // Créer fichier WAV stéréo (2 canaux au lieu de 1)
+        let spec = hound::WavSpec {
+            channels: 2, // Wrong - stereo
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&stereo_wav, spec).unwrap();
+        // Écrire quelques samples (2 par frame pour stéréo)
+        for _ in 0..1000 {
+            writer.write_sample(0i16).unwrap();
+            writer.write_sample(0i16).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let result = validate_wav_file(&stereo_wav);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&stereo_wav);
+
+        assert!(result.is_err(), "Should return error for stereo file");
+        match result {
+            Err(AppError::InvalidAudioFormat(msg)) => {
+                assert!(
+                    msg.contains("mono") && msg.contains("2"),
+                    "Error should mention expected mono and actual 2 channels: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected InvalidAudioFormat error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_wav_valid_file() {
+        let temp_dir = std::env::temp_dir();
+        let valid_wav = temp_dir.join("test_valid_validation.wav");
+
+        // Créer fichier WAV valide
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&valid_wav, spec).unwrap();
+        // Écrire quelques samples
+        for _ in 0..1000 {
+            writer.write_sample(0i16).unwrap();
+        }
+        writer.finalize().unwrap();
+
+        let result = validate_wav_file(&valid_wav);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&valid_wav);
+
+        assert!(result.is_ok(), "Should return Ok for valid WAV file");
+    }
+
+    #[test]
+    fn test_error_messages_are_actionable() {
+        let err = AppError::InvalidAudioFormat("test".to_string());
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Réenregistrez"),
+            "Should suggest action: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_model_load_failed_message_is_actionable() {
+        let err = AppError::ModelLoadFailed("generic error".to_string());
+        let msg = err.to_string();
+        // Le message doit contenir les DEUX suggestions d'action
+        assert!(
+            msg.contains("download-models.sh"),
+            "ModelLoadFailed should suggest download-models.sh: {}",
+            msg
+        );
+        assert!(
+            msg.contains("mémoire"),
+            "ModelLoadFailed should mention memory check: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_model_not_found_includes_download_instructions() {
+        let err = AppError::ModelNotFound("test path".to_string());
+        let msg = err.to_string();
+        assert!(
+            msg.contains("Modèle Whisper non trouvé"),
+            "Should mention model not found: {}",
+            msg
+        );
     }
 }

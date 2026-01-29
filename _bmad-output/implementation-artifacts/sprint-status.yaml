@@ -60,7 +60,7 @@ development_status:
   epic-3: in-progress
   3-1-integration-whisper-rs-chargement-modele: done
   3-2-transcription-asynchrone-progression: done
-  3-3-gestion-erreurs-transcription: backlog
+  3-3-gestion-erreurs-transcription: done
   3-4-nettoyage-automatique-fichiers-temporaires: backlog
   epic-3-retrospective: optional
 
