@@ -65,8 +65,8 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Text Display & Copy Integration
-  epic-4: backlog
-  4-1-affichage-texte-transcrit: backlog
+  epic-4: in-progress
+  4-1-affichage-texte-transcrit: done
   4-2-copie-presse-papiers-confirmation: backlog
   4-3-raccourci-enter-copier-auto-focus: backlog
   4-4-workflow-lineaire-reinitialisation: backlog

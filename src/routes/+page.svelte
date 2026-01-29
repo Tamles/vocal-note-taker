@@ -22,6 +22,7 @@
   import Timer from '../components/Timer.svelte';
   import WaveformDisplay from '../components/WaveformDisplay.svelte';
   import ProgressBar from '../components/ProgressBar.svelte';
+  import TranscriptionDisplay from '../components/TranscriptionDisplay.svelte';
   import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
@@ -131,11 +132,9 @@
         <ProgressBar progress={$transcriptionProgress} />
       {/if}
 
-      <!-- Transcribed text display -->
+      <!-- Transcription display - composant dédié -->
       {#if $transcriptionText && !$isRecording && !$isTranscribing}
-        <div class="transcription-result" aria-live="polite" role="region" aria-label="Résultat de transcription">
-          <p class="transcription-text">{$transcriptionText}</p>
-        </div>
+        <TranscriptionDisplay />
       {/if}
 
       <!-- Status text sous le bouton -->
@@ -219,22 +218,6 @@
 
   .status-text.closing {
     color: #f0ad4e;
-  }
-
-  .transcription-result {
-    max-width: 400px;
-    padding: 1rem;
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: 8px;
-  }
-
-  .transcription-text {
-    color: var(--color-text);
-    font-size: 1rem;
-    line-height: 1.5;
-    margin: 0;
-    word-wrap: break-word;
   }
 
   footer {
