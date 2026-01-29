@@ -49,6 +49,13 @@ pub fn run() {
             commands::start_transcription
         ])
         .setup(|app| {
+            // NFR-SEC-3: Cleanup orphaned temp files at startup (crash recovery)
+            // Non-fatal: app continues if cleanup fails
+            match crate::system::shutdown::cleanup_temp_files() {
+                Ok(()) => println!("Startup cleanup completed"),
+                Err(e) => eprintln!("Warning: Startup cleanup failed: {:?}", e),
+            }
+
             // Create application menu with Quit item (Ctrl+Q)
             let quit_item = MenuItem::with_id(
                 app,

@@ -24,7 +24,11 @@ export type AppErrorType =
 export interface AppError {
   type: AppErrorType;
   message: string;
-  details?: string;
+  /**
+   * NFR-SEC-3: Indicates if audio file was deleted for privacy.
+   * Present when error occurs during transcription process.
+   */
+  audio_deleted?: boolean;
 }
 
 /**

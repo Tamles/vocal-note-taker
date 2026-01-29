@@ -51,7 +51,12 @@
   >
     <div class="error-content">
       <span class="error-icon">{getErrorIcon($errorStore.type)}</span>
-      <span class="error-message">{$errorStore.message}</span>
+      <div class="error-messages">
+        <span class="error-message">{$errorStore.message}</span>
+        {#if $errorStore.audio_deleted}
+          <span class="privacy-note">L'enregistrement audio a été supprimé pour votre confidentialité.</span>
+        {/if}
+      </div>
     </div>
     <button
       class="close-button"
@@ -93,10 +98,22 @@
     font-size: 1.25rem;
   }
 
+  .error-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
   .error-message {
     color: #991b1b;
     font-weight: 500;
     font-size: 0.875rem;
+  }
+
+  .privacy-note {
+    color: #6b7280;
+    font-size: 0.75rem;
+    font-style: italic;
   }
 
   .close-button {
@@ -123,6 +140,10 @@
 
     .error-message {
       color: #fca5a5;
+    }
+
+    .privacy-note {
+      color: #9ca3af;
     }
 
     .close-button {

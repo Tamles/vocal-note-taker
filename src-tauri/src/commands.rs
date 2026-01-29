@@ -14,6 +14,27 @@ use crate::error::AppError;
 use crate::system::shutdown;
 use crate::transcription::{get_model_path, transcribe_audio, WhisperModel, WhisperState};
 
+/// Validates that an audio path is within the allowed temp directory.
+/// NFR-SEC-3: Prevents path traversal attacks by ensuring audio files
+/// come from the expected location.
+fn validate_audio_path(path: &PathBuf) -> Result<(), AppError> {
+    let temp_dir = crate::audio::buffer::get_temp_dir();
+
+    // Canonicalize both paths to resolve symlinks and relative components
+    let canonical_temp = temp_dir.canonicalize().unwrap_or(temp_dir);
+    let canonical_path = path.canonicalize().map_err(|e| {
+        AppError::TranscriptionFailed(format!("Invalid audio path: {}", e))
+    })?;
+
+    if !canonical_path.starts_with(&canonical_temp) {
+        return Err(AppError::TranscriptionFailed(
+            "Audio path must be within application temp directory".to_string()
+        ));
+    }
+
+    Ok(())
+}
+
 /// State global pour le stream audio actif
 /// RecordingHandle est Send + Sync car il utilise des channels
 pub struct AudioState {
@@ -153,6 +174,17 @@ struct TranscriptionPayload {
     text: String,
 }
 
+/// Payload for error events with audio cleanup information.
+/// Used when an error occurs during transcription and the audio file was deleted.
+/// NFR-SEC-3: Informs user that audio was deleted for privacy.
+#[derive(Clone, serde::Serialize)]
+struct ErrorWithCleanupPayload {
+    #[serde(rename = "type")]
+    error_type: String,
+    message: String,
+    audio_deleted: bool,
+}
+
 /// Lance la transcription de manière asynchrone.
 ///
 /// Retourne immédiatement - résultat via événements:
@@ -181,12 +213,52 @@ pub async fn start_transcription(
         )));
     }
 
+    // NFR-SEC-3: Validate path is within allowed temp directory (prevents path traversal)
+    validate_audio_path(&audio_path)?;
+
     // Clone les éléments nécessaires pour le spawn
     let model_arc = whisper_state.model.clone();
     let app_clone = app.clone();
 
     // Spawn async task pour ne pas bloquer
     tokio::spawn(async move {
+        // Helper fonction pour cleanup (appelée dans tous les chemins)
+        // Retourne true si le fichier a été supprimé
+        let cleanup_audio = |path: &PathBuf| -> bool {
+            // NFR-SEC-1, NFR-SEC-3: Cleanup immédiat du fichier audio temporaire (privacy-first)
+            if let Err(e) = std::fs::remove_file(path) {
+                eprintln!("Warning: Failed to cleanup temp audio file: {:?}", e);
+                false
+            } else {
+                println!("Temp audio file cleaned up: {}", path.display());
+                true
+            }
+        };
+
+        // Helper pour émettre erreur avec info cleanup
+        let emit_error_with_cleanup = |app: &AppHandle, error: &AppError, audio_deleted: bool| {
+            let error_type = match error {
+                AppError::MicrophoneAccessDenied => "MicrophoneAccessDenied",
+                AppError::MicrophoneNotFound => "MicrophoneNotFound",
+                AppError::TranscriptionFailed(_) => "TranscriptionFailed",
+                AppError::RecordingInterrupted => "RecordingInterrupted",
+                AppError::ConfigurationError(_) => "ConfigurationError",
+                AppError::ClipboardError => "ClipboardError",
+                AppError::IoError(_) => "IoError",
+                AppError::HotkeyRegistrationFailed(_) => "HotkeyRegistrationFailed",
+                AppError::ModelNotFound(_) => "ModelNotFound",
+                AppError::ModelLoadFailed(_) => "ModelLoadFailed",
+                AppError::InvalidAudioFormat(_) => "InvalidAudioFormat",
+            };
+
+            let payload = ErrorWithCleanupPayload {
+                error_type: error_type.to_string(),
+                message: error.to_string(),
+                audio_deleted,
+            };
+            let _ = app.emit("error", payload);
+        };
+
         // Émettre progression initiale
         let _ = app_clone.emit("transcription-progress", ProgressPayload { percent: 0 });
 
@@ -203,13 +275,15 @@ pub async fn start_transcription(
                     }
                     Err(e) => {
                         eprintln!("Failed to load model: {:?}", e);
-                        let _ = app_clone.emit("error", e);
+                        let deleted = cleanup_audio(&audio_path);
+                        emit_error_with_cleanup(&app_clone, &e, deleted);
                         return;
                     }
                 },
                 Err(e) => {
                     eprintln!("Failed to get model path: {:?}", e);
-                    let _ = app_clone.emit("error", e);
+                    let deleted = cleanup_audio(&audio_path);
+                    emit_error_with_cleanup(&app_clone, &e, deleted);
                     return;
                 }
             }
@@ -233,17 +307,16 @@ pub async fn start_transcription(
                 }
                 Err(e) => {
                     eprintln!("Transcription failed: {:?}", e);
-                    let _ = app_clone.emit("error", e);
+                    let deleted = cleanup_audio(&audio_path);
+                    emit_error_with_cleanup(&app_clone, &e, deleted);
+                    return; // Ne pas faire double cleanup
                 }
             }
-
-            // NFR-SEC-1: Cleanup immédiat du fichier audio temporaire (privacy-first)
-            if let Err(e) = std::fs::remove_file(&audio_path) {
-                eprintln!("Warning: Failed to cleanup temp audio file: {:?}", e);
-            } else {
-                println!("Temp audio file cleaned up: {}", audio_path.display());
-            }
         }
+
+        // Cleanup TOUJOURS exécuté (succès de transcription)
+        // Placé hors du bloc if let Some(ref model) pour garantir exécution
+        cleanup_audio(&audio_path);
     });
 
     Ok(())
