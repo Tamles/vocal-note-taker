@@ -23,6 +23,7 @@
   import WaveformDisplay from '../components/WaveformDisplay.svelte';
   import ProgressBar from '../components/ProgressBar.svelte';
   import TranscriptionDisplay from '../components/TranscriptionDisplay.svelte';
+  import CopyButton from '../components/CopyButton.svelte';
   import { toAppError } from '../lib/errorHelpers';
 
   let appVersion = '';
@@ -135,6 +136,7 @@
       <!-- Transcription display - composant dédié -->
       {#if $transcriptionText && !$isRecording && !$isTranscribing}
         <TranscriptionDisplay />
+        <CopyButton />
       {/if}
 
       <!-- Status text sous le bouton -->

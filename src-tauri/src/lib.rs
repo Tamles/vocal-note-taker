@@ -38,6 +38,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AudioState::default())
         .manage(WhisperState::default())
         .invoke_handler(tauri::generate_handler![
@@ -46,7 +47,8 @@ pub fn run() {
             commands::request_quit,
             commands::start_recording,
             commands::stop_recording,
-            commands::start_transcription
+            commands::start_transcription,
+            commands::copy_to_clipboard
         ])
         .setup(|app| {
             // NFR-SEC-3: Cleanup orphaned temp files at startup (crash recovery)

@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 
 use crate::audio::{self, RecordingHandle};
 use crate::error::AppError;
-use crate::system::shutdown;
+use crate::system::{clipboard, shutdown};
 use crate::transcription::{get_model_path, transcribe_audio, WhisperModel, WhisperState};
 
 /// Validates that an audio path is within the allowed temp directory.
@@ -79,6 +79,18 @@ pub fn request_quit(app: AppHandle) -> Result<(), AppError> {
     app.exit(0);
 
     Ok(())
+}
+
+/// Copie le texte transcrit dans le presse-papiers système.
+///
+/// # Arguments
+/// * `text` - Texte à copier (plain text, FR24)
+///
+/// # Errors
+/// - `ClipboardError` si la copie échoue
+#[tauri::command]
+pub fn copy_to_clipboard(app: AppHandle, text: String) -> Result<(), AppError> {
+    clipboard::copy_to_clipboard(&app, &text)
 }
 
 /// Démarre l'enregistrement audio
