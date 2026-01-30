@@ -5,6 +5,7 @@
    * @consumes transcriptionText - Gets text to copy
    * @calls copy_to_clipboard - Invokes backend clipboard command
    * @displays "✓ Copié!" feedback on success (FR23)
+   * @exports focus() - Method to programmatically focus the button (FR22)
    */
   import { onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -14,6 +15,15 @@
 
   let copied = false;
   let copyTimeout: ReturnType<typeof setTimeout> | null = null;
+  let buttonElement: HTMLButtonElement;
+
+  /**
+   * Expose focus method for parent component to trigger auto-focus (FR22).
+   * Called after transcription completes to enable Enter key workflow.
+   */
+  export function focus() {
+    buttonElement?.focus();
+  }
 
   // Cleanup timeout on component destroy to prevent memory leak
   onDestroy(() => {
@@ -39,6 +49,7 @@
 </script>
 
 <button
+  bind:this={buttonElement}
   class="copy-button"
   class:copied
   on:click={handleCopy}
@@ -76,5 +87,25 @@
     background: #22c55e;
     border-color: #16a34a;
     color: #fff;
+  }
+
+  /* Focus styles for keyboard navigation (FR22) */
+  .copy-button:focus:not(:disabled) {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--color-focus-glow, rgba(74, 144, 194, 0.5));
+  }
+
+  .copy-button:focus-visible:not(:disabled) {
+    outline: 2px solid var(--color-focus, #4a90c2);
+    outline-offset: 2px;
+  }
+
+  /* Green focus glow when in copied state */
+  .copy-button.copied:focus:not(:disabled) {
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.5);
+  }
+
+  .copy-button.copied:focus-visible:not(:disabled) {
+    outline-color: #22c55e;
   }
 </style>

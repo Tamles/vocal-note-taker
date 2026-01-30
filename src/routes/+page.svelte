@@ -29,6 +29,7 @@
   let appVersion = '';
   let unlisteners: UnlistenFn[] = [];
   let isClosing = false;
+  let copyButtonRef: CopyButton;
 
   /**
    * Handles Ctrl+Q keyboard shortcut for graceful quit.
@@ -83,6 +84,12 @@
         // Reset recording state for next session
         recordingDuration.reset();
         audioData.clear();
+        // Auto-focus CopyButton after transcription (FR22)
+        // Delay allows DOM to update after state change before focusing
+        const FOCUS_DELAY_MS = 50;
+        setTimeout(() => {
+          copyButtonRef?.focus();
+        }, FOCUS_DELAY_MS);
       }),
       await listen<{ type: string; message: string }>('error', (event) => {
         errorStore.setError(toAppError(event.payload));
@@ -136,7 +143,7 @@
       <!-- Transcription display - composant dédié -->
       {#if $transcriptionText && !$isRecording && !$isTranscribing}
         <TranscriptionDisplay />
-        <CopyButton />
+        <CopyButton bind:this={copyButtonRef} />
       {/if}
 
       <!-- Status text sous le bouton -->
@@ -168,6 +175,8 @@
     --color-border: #333;
     --color-accent: #0f3460;
     --color-recording: #ef4444;
+    --color-focus: #4a90c2;
+    --color-focus-glow: rgba(74, 144, 194, 0.5);
     --timer-font-size: 2rem;
     --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
