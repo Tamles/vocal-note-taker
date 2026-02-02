@@ -8,6 +8,7 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { recordingState, isRecording, isTranscribing } from '../stores/recordingState';
+  import { resetTranscription } from '../stores/transcriptionState';
   import { errorStore } from '../stores/errorStore';
   import { toAppError } from '../lib/errorHelpers';
 
@@ -32,6 +33,8 @@
         // This returns immediately, results come via events
         await invoke('start_transcription', { audioPath: wavPath });
       } else {
+        // FR18: Clear previous transcription before new recording
+        resetTranscription();
         // Start recording - backend emits recording-started event
         await invoke('start_recording');
       }
